@@ -18,8 +18,9 @@ knitr::opts_chunk$set(echo = TRUE)
  
 #1. Project details ----
 #' Project title (full):  
-#' profile of methane output from pasture-based dairy systems
+#' Evaluating alternative methane trait definitions for sheep 1 genetic evaluations: a simulation study
 #' Project short title:
+#' Generate simulation datasets
 #' Project code: 2004
 #' 
 #' Scientist(s) in charge: Peter Amer (AbacusBio) / Noirin McHugh (Teagasc)
