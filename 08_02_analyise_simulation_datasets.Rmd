@@ -1,0 +1,1301 @@
+---
+title: "Simulation 2"
+author: "Shalini Abeykoon"
+date: "2025-03-07"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+##---------------------------------------------------------------------------##
+# 02 - Analysing Datasets ----
+##---------------------------------------------------------------------------##
+ 
+#1. Project details ----
+#' Project title (full):  
+#' profile of methane output from pasture-based dairy systems
+#' Project short title:
+#' Project code: 2004
+#' 
+#' Scientist(s) in charge: Peter Amer (AbacusBio) / Noirin McHugh (Teagasc)
+#' Code written by: Shalini Abeykoon
+#' 
+#' Simulating NZ sheep data sets - pedigree, fixed effects, tbvs, and phenotypes
+#'  
+#' 
+#' Outputs: 
+#' final data set replicates
+#'  1) Demotable
+#'  2) Averages table
+#' 
+#' final data set containing:
+#'  1) Residual univariate averages
+#'  2) Residual multivariate averages
+#'  3) Raw univariate averages
+#'  4) Raw multivariate averages
+#'  5) Deregressed univariate averages
+#'  6) Deregressed multivariate averages
+#'
+#'R version used: 4.4.2 (2024-10-31 UCRT) -- "Pile of Leaves"
+#'
+```
+
+
+```{r, eval = FALSE}
+# Packages
+packageList = c("ggplot2",
+                "gridExtra",
+                "data.table",
+                "MASS",
+                "reshape2",
+                "plyr",
+                "Runuran",
+                "corpcor",
+                "gdata", 
+                "MatchIt",
+                "lme4",
+                "merTools",
+                "nlme",
+                "ape",
+                "dplyr",
+                "corrplot",
+                "grid",
+                "rlang",
+                "crayon",
+                "readr",
+                "beepr",
+                "GGally",
+                "rlang"
+                )
+
+# Install only packages that are not already installed
+new.packages <- packageList[!(packageList %in% installed.packages()[,"Package"])]
+if(length(new.packages)) install.packages(new.packages)
+
+lapply(packageList, require, character.only = TRUE)
+```
+
+Workflow:
+1. upload dataset files from your directory e.g. path/to/your/simulation_data (uploads should be in order form sh_m_full_sim_1.csv to sh_m_full_sim_180.csv)
+2. create separate data sets for a) all animals, b) animals with PAC, and c) animals without PAC
+3. Create demo tables and save into your output directory e.g. path/to/your/output_directory
+4. Create average tables and save into your output directory e.g. path/to/your/output_directory
+
+These datasets should already have columns for all corrections performed in the manuscript include univariate and multivariate uncorrected EBVs, univariate and multivariate residual corrections, univariate and multivariate raw corrections, and univariate and multivariate deregressed corrections. 
+
+Datasets uploaded should include the following column names though other redundant columns for working are fine. Notes for particular columns are labelled with an arrow (<-) alongside the description of what correction it refers to in the manuscript. 
+id
+sire
+dam
+bw.tbv <- live weight true breeding value
+fi.tbv <- feed intake true breeding value
+ch4.tbv
+co2.tbv
+ych4.tbv <- methane yield true breeding value 
+yco2.tbv
+ch4.p.x
+co2.p.x
+dch4_uEBV <- uncorrected univariate daily methane EBV 
+dch4_uEBV_rel <- uncorrected univariate daily methane EBV reliability
+dch4_mEBV <- uncorrected multivariate daily methane EBV
+dch4_mEBV_rel <- uncorrected multivariate daily methane EBV reliability
+r1_uEBV <- residual univariate daily methane corrected for live weight
+r2_uEBV <- residual univariate daily methane corrected for co2
+r3_uEBV <- residual univariate daily methane corrected for live weight and co2
+r1_mEBV <- residual multivariate daily methane corrected for live weight
+r2_mEBV <- residual multivariate daily methane corrected for co2
+r3_mEBV <- residual multivariate daily methane corrected for live weight ad co2
+u_dch4_adj_bw <- raw correction univariate daily methane corrected for live weight
+u_dch4_adj_dco2 <- raw correction univariate daily methane corrected for co2
+u_dch4_adj_bw_dco2 <- raw correction univariate daily methane corrected for live weight and co2
+m_dch4_adj_bw <- raw correction multivariate daily methane corrected for live weight
+m_dch4_adj_dco2 <- raw correction multivariate daily methane corrected for co2
+m_dch4_adj_bw_dco2 <- raw correction multivariate daily methane corrected for live weight and co2
+u_d3_CH4gBV_LW <- deregressed univariate daily methane corrected for live weight
+u_d3_CH4gBV_CO2 <- deregressed univariate daily methane corrected for co2
+u_d3_CH4gBV_LW_CO2 <- deregresseed univariate daily methane corrected for live weight and co2
+m_d3_CH4gBV_LW <- deregressed multivariate daily methane corrected for live weight
+m_d3_CH4gBV_CO2 <- deregressed multivariate daily methane corrected for co2
+m_d3_CH4gBV_LW_CO2 <- deregressed multivariate daily methane corrected for live weight and 
+
+
+```{r, eval=FALSE}
+# upload files
+# ---- User-defined paths (edit these to match your local setup) ----
+data_dir <- "path/to/your/simulation_data"     # folder containing sh_m_full_sim_1.csv ... sh_m_full_sim_180.csv
+out_dir  <- "path/to/your/output_directory"    # where demo and average tables will be written
+
+# Get only files matching sh_m_full_sim_#.csv
+files <- list.files(
+  path = data_dir,
+  pattern = "^sh_m_full_sim_[0-9]+\\.csv$",
+  full.names = TRUE
+)
+
+# Extract simulation number and sort numerically
+sim_num <- as.integer(sub("^sh_m_full_sim_([0-9]+)\\.csv$", "\\1", basename(files)))
+files <- files[order(sim_num)]
+sim_num <- sim_num[order(sim_num)]
+
+# Optional check
+print(head(basename(files), 10))
+print(tail(basename(files), 10))
+
+# Read each file and assign into Global Environment as sh_m_full_sim_1 ... sh_m_full_sim_180
+for (i in seq_along(files)) {
+  obj_name <- paste0("sh_m_full_sim_", sim_num[i])
+  assign(obj_name, fread(files[i]), envir = .GlobalEnv)
+  message(sprintf("Loaded %s", obj_name))
+}
+
+# Final check
+loaded_objs <- ls(pattern = "^sh_m_full_sim_[0-9]+$", envir = .GlobalEnv)
+loaded_nums <- as.integer(sub("^sh_m_full_sim_", "", loaded_objs))
+loaded_objs <- loaded_objs[order(loaded_nums)]
+
+cat("Number of datasets loaded:", length(loaded_objs), "\n")
+cat("First loaded object:", loaded_objs[1], "\n")
+cat("Last loaded object:", loaded_objs[length(loaded_objs)], "\n")
+```
+
+The four data sets used for focal groups are as follows:
+base_list         - full_0_sim_i
+
+full_list         - full_0_sim_i
+pac_sim_list      - pac_sim_i
+nopac_sim_list    - nopac_sim_i
+sire_list         - sire_sim_i
+
+```{r}
+# --- Step 1: Copy sh_m_full_sim_1 .. sh_m_full_sim_180 to full_0_sim_1 .. full_0_sim_180 ----
+for (i in 1:180) {
+  src_name <- paste0("sh_m_full_sim_", i)
+  dst_name <- paste0("full_0_sim_", i)
+  
+  df <- get0(src_name, ifnotfound = NULL, envir = .GlobalEnv)
+  if (is.null(df)) {
+    message(sprintf("⚠️ %s not found; skipping copy.", src_name))
+    next
+  }
+  
+  assign(dst_name, df, envir = .GlobalEnv)
+  message(sprintf("✅ Copied %s → %s (%d rows, %d cols)",
+                  src_name, dst_name, nrow(df), ncol(df)))
+}
+
+```
+
+```{r}
+# --- Base: pull full_0_sim_1..180 safely into a list ----------------------------
+base_names <- paste0("full_0_sim_", 1:180)
+base_list  <- mget(base_names,
+                   ifnotfound = as.list(rep(list(NULL), length(base_names))),
+                   envir = .GlobalEnv)
+names(base_list) <- base_names
+
+# keeping base list and full_0_sim_list separate so as to not overwrite
+full_list <- mget(paste0("full_0_sim_", 1:180),
+                        ifnotfound = as.list(rep(list(NULL), 180)),
+                        envir = .GlobalEnv)
+
+# helper: robust logical filter builder
+has_col <- function(df, col) !is.null(df) && is.data.frame(df) && col %in% names(df)
+
+# --- 1) WITH PAC: keep rows where ch4.p.x is not NA ---------------------------
+pac_sim_list <- imap(base_list, function(df, nm) {
+  if (!has_col(df, "ch4.p.x")) {
+    message(sprintf("ℹ️ %s: no ch4.p.x; returning NULL.", nm))
+    return(NULL)
+  }
+  out <- df[!is.na(df$ch4.p.x), , drop = FALSE]
+  if (!nrow(out)) {
+    message(sprintf("ℹ️ %s: with-PAC filter produced 0 rows.", nm))
+    return(NULL)
+  }
+  out
+})
+names(pac_sim_list) <- base_names
+
+# --- 2) WITHOUT PAC: keep rows where ch4.p.x is NA ----------------------------
+nopac_sim_list <- imap(base_list, function(df, nm) {
+  if (!has_col(df, "ch4.p.x")) {
+    message(sprintf("ℹ️ %s: no ch4.p.x; returning NULL.", nm))
+    return(NULL)
+  }
+  out <- df[is.na(df$ch4.p.x), , drop = FALSE]
+  if (!nrow(out)) {
+    message(sprintf("ℹ️ %s: no-PAC filter produced 0 rows.", nm))
+    return(NULL)
+  }
+  out
+})
+names(nopac_sim_list) <- base_names
+
+# --- 3) SIRES: per-simulation data of all sire animals (full rows) ----------
+sire_list <- purrr::imap(base_list, function(df, nm) {
+  # basic checks
+  if (is.null(df) || !all(c("id", "sire") %in% names(df))) {
+    message(sprintf("ℹ️ %s: missing 'id' or 'sire' column; returning NULL.", nm))
+    return(NULL)
+  }
+
+  # Work in character space so numeric/character mix doesn't bite us
+  id_chr   <- as.character(df$id)
+  sire_chr <- as.character(df$sire)
+
+  # Sire IDs are those that appear in the 'sire' column (excluding 0 / NA)
+  sire_ids <- unique(sire_chr[!is.na(sire_chr) & sire_chr != "0"])
+
+  if (!length(sire_ids)) {
+    message(sprintf("ℹ️ %s: no sires identified (no non-zero 'sire' IDs); returning NULL.", nm))
+    return(NULL)
+  }
+
+  # Keep only rows where the animal itself is a sire
+  out <- df[id_chr %in% sire_ids, , drop = FALSE]
+
+  if (!nrow(out)) {
+    message(sprintf("ℹ️ %s: sire IDs found but no matching 'id' rows; returning NULL.", nm))
+    return(NULL)
+  }
+
+  out
+})
+
+names(sire_list) <- base_names
+
+
+# --- Quick summaries ----------------------------------------------------------
+cat(sprintf("pac_sim_list:    %d non-NULL of %d\n",
+            sum(!vapply(pac_sim_list, is.null, logical(1))), length(pac_sim_list)))
+cat(sprintf("nopac_sim_list:  %d non-NULL of %d\n",
+            sum(!vapply(nopac_sim_list, is.null, logical(1))), length(nopac_sim_list)))
+cat(sprintf("sire_list:       %d non-NULL of %d\n",
+            sum(!vapply(sire_list, is.null, logical(1))), length(sire_list)))
+
+```
+
+Now we need to create a demo_table which is all the averages of results. 
+
+1) Function - pick_col
+Given a simulation data frame (sh_m_full_sim_1 to sh_m_full_sim_180) and one (or more) candidate x-variable names, pick the first one that actually exists – or fail loudly if none do.
+
+
+2) Function - lm_stats
+takes a TBV vector (x) and an EBV/adjusted EBV vector (y) and creates linear models for these. It removes missing data, then calculates accuracy metrics (correlation, R²), calibration metrics (slope (b1) and intercept (b0)), and error metrics (bias = mean(y–x) and RMSE). 
+
+
+3) Function - find_y_cols
+identifies which EBV-related columns are present in a simulation dataset. It compares the dataset’s column names against a predefined whitelist of all EBV types used in the analysis and returns only the matching variables.
+
+
+4) Function - sumarise_one 
+The function summarise_one() computes all accuracy and bias statistics for a single simulation and a single TBV trait. It takes:
+- a dataset (df),
+- the simulation ID (sim_id),
+- the TBV column of interest (x_col),
+and compares that TBV to every EBV-type column returned by find_y_cols().
+
+For each EBV column, it calculates:
+- R^2
+- Pearson correlation
+- Regression slope (b1)
+- Regression intercept (b0)
+- Bias (mean(EBV − TBV))
+- RMSE
+
+The function returns one row per simulation × TBV combination, with all metrics stored as separate columns. If no relevant EBV columns are found, it returns only the simulation ID and TBV name.
+
+
+
+
+Codes
+u_d3_CH4gBV_LW - This was using the subtraction adjustment
+u_d1_CH4gBV_LW - This was using the residual adjustment (changed from u_d3_CH4gBV_LW to u_d1_CH4gBV_LW)
+
+```{r}
+  # ---------- helpers ----------
+  # 1)
+  pick_col <- function(df, candidates) {
+    nm <- candidates[candidates %in% names(df)]
+    if (!length(nm)) stop("None of ", paste(candidates, collapse = ", "), " found in df.")
+    nm[1]
+  }
+  
+  # 2)
+  lm_stats <- function(x, y) {
+    ok <- is.finite(x) & is.finite(y)
+    n  <- sum(ok)
+    if (n == 0) {
+      return(c(r2 = NA_real_, corr = NA_real_, b1 = NA_real_, b0 = NA_real_,
+               bias = NA_real_, rmse = NA_real_))
+    }
+  
+    xok <- x[ok]; yok <- y[ok]
+    err   <- xok - yok
+    bias  <- mean(err)
+    rmse  <- sqrt(mean(err^2))
+    r_val <- suppressWarnings(cor(xok, yok))  # Pearson r
+  
+    if (n < 2) {
+      return(c(r2 = NA_real_, corr = r_val, b1 = NA_real_, b0 = NA_real_,
+               bias = bias, rmse = rmse))
+    }
+  
+    fit <- suppressWarnings(lm(xok ~ yok))
+    s   <- summary(fit)
+  
+    c(r2   = unname(s$r.squared),
+      corr = r_val,
+      b1   = unname(coef(fit)[2]),
+      b0   = unname(coef(fit)[1]),
+      bias = bias,
+      rmse = rmse)
+  }
+  
+  # discover all EBV columns of interest
+  find_y_cols <- function(df) {
+    all_names <- names(df)
+  
+    base_u <- c("bw_uEBV", "dch4_uEBV", "dco2_uEBV")
+    resids_u <- c("r1_uEBV","r2_uEBV","r3_uEBV")
+    adj0_u <- c("u_dch4_adj_bw", "u_dch4_adj_dco2", "u_dch4_adj_bw_dco2")
+    adj_d3_u <- c("u_d1_CH4gBV_LW" , "u_d1_CH4gBV_CO2", "u_d1_CH4gBV_LW_CO2")
+    
+    base_m <- c("bw_mEBV", "dch4_mEBV", "dco2_mEBV")
+    resids_m <- c("r1_mEBV","r2_mEBV","r3_mEBV")
+    adj0_m <- c("m_dch4_adj_bw", "m_dch4_adj_dco2", "m_dch4_adj_bw_dco2")
+    adj_d3_m <- c("m_d1_CH4gBV_LW", "m_d1_CH4gBV_CO2", "m_d1_CH4gBV_LW_CO2")
+  
+    y_whitelist <- unique(c(
+      resids_u,
+      base_u,
+      adj0_u, 
+      adj_d3_u,
+      resids_m,
+      base_m,
+      adj0_m,
+      adj_d3_m
+    ))
+  
+    intersect(y_whitelist, all_names)
+  }
+  
+  # one-simulation summarise
+  summarise_one <- function(df, sim_id, x_col) {
+    x_nm   <- pick_col(df, x_col)
+    y_cols <- find_y_cols(df)
+  
+    if (!length(y_cols)) {
+      return(tibble(sim = sim_id, xvar = x_col))
+    }
+  
+    pair_stats <- purrr::imap_dfc(setNames(y_cols, y_cols), function(y_nm, tag) {
+      stats <- lm_stats(df[[x_nm]], df[[y_nm]])
+      tibble::tibble(
+        !!paste0(tag, "_r2")    := stats["r2"],
+        !!paste0(tag, "_corr")  := stats["corr"],
+        !!paste0(tag, "_b1")    := stats["b1"],
+        !!paste0(tag, "_b0")    := stats["b0"],
+        !!paste0(tag, "_bias")  := stats["bias"],
+        !!paste0(tag, "_rmse")  := stats["rmse"]
+      )
+    })
+  
+    dplyr::bind_cols(tibble(sim = sim_id, xvar = x_col), pair_stats)
+  }
+  
+
+```
+
+```{r}
+# ---------- build base table over all sims & x vars ----------
+x_vars <- c("bw.tbv", "fi.tbv", "ych4.tbv", "yco2.tbv")
+
+demo_table <- dplyr::bind_rows(
+  unlist(Map(function(d, i) {
+    lapply(x_vars, function(xv) {
+      tryCatch(
+        summarise_one(d, i, x_col = xv),
+        error = function(e) stop(sprintf("Error in simulation %d (x=%s): %s", i, xv, e$message), call. = FALSE)
+      )
+    })
+  }, full_list, seq_along(full_list)), recursive = FALSE)
+)
+
+```
+
+```{r}
+# ---------- (sim cleanup, blocks, split, add Mean/sd/se/cv/min/max) ----------
+# Ensure 'sim' is clean
+if (!"sim" %in% names(demo_table)) {
+  sim_like <- grep("^sim(\\.\\.\\d+)?$", names(demo_table), value = TRUE)
+  if (length(sim_like)) names(demo_table)[match(sim_like[1], names(demo_table))] <- "sim"
+}
+
+demo_table <- demo_table %>% mutate(sim = suppressWarnings(as.integer(sim)))
+
+# Add 6 blocks of 30 with your names
+demo_table <- demo_table %>%
+  mutate(
+    block = cut(
+      sim,
+      breaks = c(0, 30, 60, 90, 120, 150, 180),
+      labels = c("miss0_y0","miss0_y3","miss50_y0","miss50_y3","miss70_y0","miss70_y3"),
+      include.lowest = TRUE, right = TRUE
+    )
+  )
+
+# Split by (xvar, block)
+split_list <- split(demo_table, list(demo_table$xvar, demo_table$block), drop = TRUE)
+
+out <- lapply(split_list, function(tb) {
+  if (is.null(tb) || !nrow(tb)) return(tb)
+
+  # numeric columns to summarize
+  num_cols_all <- vapply(tb, is.numeric, logical(1))
+  num_names    <- names(tb)[num_cols_all]
+
+  # bucket 1: year means; bucket 2: everything else
+  year_cols  <- grep("^mean_.*_yob_\\d{4}$", num_names, value = TRUE)
+  other_cols <- setdiff(num_names, year_cols)
+
+  # n for se (count sims, not any appended summary rows)
+  n_sims <- sum(!is.na(tb$sim))
+  if (!n_sims) return(tb)
+
+  xv <- unique(tb$xvar)[1]
+  bl <- as.character(unique(tb$block)[1])
+
+  add_row_named <- function(label, vals) {
+    tibble(sim = label, xvar = xv, block = bl) %>%
+      bind_cols(as.data.frame(t(vals), stringsAsFactors = FALSE))
+  }
+
+  summarise_cols <- function(cols, suffix = "") {
+    if (!length(cols)) return(list())
+    
+    mat  <- as.matrix(tb[, cols, drop = FALSE])
+    m    <- colMeans(mat, na.rm = TRUE)
+    sdev <- apply(mat, 2, sd, na.rm = TRUE)
+    se   <- sdev / sqrt(n_sims)
+    cv   <- ifelse(abs(m) > 0, sdev / abs(m), NA_real_)
+    minv <- apply(mat, 2, min, na.rm = TRUE)
+    maxv <- apply(mat, 2, max, na.rm = TRUE)
+  
+    list(
+      add_row_named(paste0("Mean", suffix), m),
+      add_row_named(paste0("sd",   suffix), sdev),
+      add_row_named(paste0("se",   suffix), se),
+      add_row_named(paste0("cv",   suffix), cv),
+      add_row_named(paste0("min",  suffix), minv),
+      add_row_named(paste0("max",  suffix), maxv)
+    )
+  }
+
+  rows_other <- summarise_cols(other_cols, "")
+  rows_year  <- summarise_cols(year_cols,  "_year")
+
+  bind_rows(tb, dplyr::bind_rows(c(rows_other, rows_year)))
+})
+
+demo_table <- dplyr::bind_rows(out)
+t1 <- demo_table
+```
+
+```{r}
+# --- 0) Clean the sim column name to a stable 'sim' --------------------------
+sim_like <- grep("^sim($|\\.\\.\\d+)$", names(demo_table), value = TRUE)
+if (length(sim_like) >= 1L) {
+  names(demo_table)[names(demo_table) == sim_like[1]] <- "sim"
+}
+
+# Sanity check row count
+stopifnot(nrow(demo_table) == 864)
+
+# --- 1) Define the 24 chunk labels in the requested order --------------------
+x_order   <- c("bw.tbv","fi.tbv","ych4.tbv","yco2.tbv")
+miss_ord  <- c(0, 50, 70)
+ycorr_ord <- c(0.00, 0.30)
+
+# Expand in the order: for ycorr in (0.00, 0.30), for missing in (0,50,70), for x in (bw,fi,ych4,yco2)
+group_meta <- purrr::map_dfr(miss_ord, function(miss) {   # outer: missing = 0,50,70
+  purrr::map_dfr(ycorr_ord, function(yc) {                # inner: ycorr = 0.00,0.30
+    tibble::tibble(xvar = x_order, ycorr = yc, missing = miss)
+  })
+}) %>%
+  dplyr::mutate(group_id = dplyr::row_number()) %>%
+  dplyr::select(group_id, xvar, ycorr, missing)
+
+stopifnot(nrow(group_meta) == 24L)
+
+# Abbreviation helpers
+abbr_x <- c("bw.tbv"="bw", "fi.tbv"="fi", "ych4.tbv"="ych4", "yco2.tbv"="yco2")
+abbr_y <- c("0"="y0", "0.00"="y0", "0.3"="y3", "0.30"="y3")
+abbr_m <- c("0"="m0", "50"="m50", "70"="m70")
+
+# --- 2) Split demo_table into 24 chunks of 34 rows (sequential) --------------
+chunk_size <- 36L
+n_chunks   <- 24L
+demo_table <- dplyr::mutate(
+  demo_table,
+  .chunk = rep(seq_len(n_chunks), each = chunk_size)
+)
+
+chunks <- split(demo_table, demo_table$.chunk)
+
+# --- 3) For each chunk: verify xvar matches, suffix columns, keep row index ---
+prep_chunk <- function(tb, meta_row) {
+  # Add row index inside chunk for joining later
+  tb <- dplyr::mutate(tb, .row34 = dplyr::row_number())
+
+  # Verify xvar column matches expected (optional but helpful)
+  xvar_here <- unique(tb$xvar)
+  if (length(xvar_here) != 1L || xvar_here != meta_row$xvar) {
+    warning(sprintf("Chunk %d xvar mismatch: found %s, expected %s",
+                    meta_row$group_id,
+                    paste(xvar_here, collapse = ","),
+                    meta_row$xvar))
+  }
+
+  # Build suffix like "__bw_y0_m50"
+  sx <- abbr_x[[meta_row$xvar]]
+  sy <- abbr_y[[as.character(meta_row$ycorr)]]
+  sm <- abbr_m[[as.character(meta_row$missing)]]
+  suffix <- paste0("__", sx, "_", sy, "_", sm)
+
+  # Identify id columns & metric columns
+  id_cols     <- c(".row34", "sim", "xvar", ".chunk")
+  id_cols     <- intersect(id_cols, names(tb))
+  metric_cols <- setdiff(names(tb), id_cols)
+
+  # Rename metric columns with suffix
+  names(tb)[match(metric_cols, names(tb))] <- paste0(metric_cols, suffix)
+
+  # Rename sim to include suffix (kept for reference)
+  if ("sim" %in% names(tb)) {
+    names(tb)[names(tb) == "sim"] <- paste0("sim", suffix)
+  }
+
+  # Drop helper columns xvar/.chunk; keep .row34 and renamed metrics
+  keep_cols <- c(".row34", grep(suffix, names(tb), value = TRUE))
+  tb <- dplyr::select(tb, dplyr::all_of(keep_cols))
+  tb
+}
+
+wide_chunks <- purrr::imap(chunks, ~prep_chunk(.x, group_meta[as.integer(.y), ]))
+
+# --- 4) Bind side-by-side by the .row34 index -------------------------------
+wide_all <- purrr::reduce(wide_chunks, ~ dplyr::full_join(.x, .y, by = ".row34")) %>%
+  dplyr::arrange(.row34)
+
+```
+
+```{r}
+ave_tbl <- wide_all[c(31:36), ]
+names(ave_tbl)[names(ave_tbl) == "sim...1__bw_y0_m0"] <- "stat"
+ave_tbl$stat <- c("mean", "sd", "se", "cv", "min", "max")
+
+ave_tbl <- ave_tbl[, !(
+  names(ave_tbl) %in% ".row34" |
+  grepl("^sim\\.\\.\\.220", names(ave_tbl)) |
+  grepl("^sim\\.\\.\\.221", names(ave_tbl)) |
+  grepl("^block_", names(ave_tbl))
+)]
+
+t1_ave_tbl <- ave_tbl
+```
+
+```{r}
+# helper to grab "stat" + columns containing a substring
+grab_cols <- function(df, needle) {
+  keep <- c("stat", grep(needle, names(df), value = TRUE, fixed = TRUE))
+  df[, keep, drop = FALSE]
+}
+
+bw_ave   <- grab_cols(ave_tbl, "__bw_y")
+fi_ave   <- grab_cols(ave_tbl, "__fi_y")
+ych4_ave <- grab_cols(ave_tbl, "__ych4_y")
+yco2_ave <- grab_cols(ave_tbl, "__yco2_y")
+```
+
+Now I will get just the correlation columns
+```{r}
+bw_ave_corr <- bw_ave[, c("stat", grep("_corr__", names(bw_ave), value = TRUE))]
+fi_ave_corr <- fi_ave[, c("stat", grep("_corr__", names(fi_ave), value = TRUE))]
+ych4_ave_corr <- ych4_ave[, c("stat", grep("_corr__", names(ych4_ave), value = TRUE))]
+yco2_ave_corr <- yco2_ave[, c("stat", grep("_corr__", names(yco2_ave), value = TRUE))]
+```
+
+
+# with PAC
+```{r}
+full_pac_list <- pac_sim_list
+```
+
+```{r}
+# ---------- build base table over all sims & x vars ----------
+x_vars <- c("bw.tbv", "fi.tbv", "ych4.tbv", "yco2.tbv")
+
+demo_table <- dplyr::bind_rows(
+  unlist(Map(function(d, i) {
+    # skip sims where the PAC filter produced 0 rows (d is NULL)
+    if (is.null(d) || !is.data.frame(d)) return(NULL)
+
+    lapply(x_vars, function(xv) {
+      tryCatch(
+        summarise_one(d, i, x_col = xv),
+        error = function(e) {
+          stop(
+            sprintf("Error in PAC simulation %d (x=%s): %s", i, xv, e$message),
+            call. = FALSE
+          )
+        }
+      )
+    })
+  }, full_pac_list, seq_along(full_pac_list)), recursive = FALSE)
+)
+
+# ---------- (sim cleanup, blocks, split, add Mean/sd/se/cv/min/max) ----------
+
+# Ensure 'sim' is clean
+if (!"sim" %in% names(demo_table)) {
+  sim_like <- grep("^sim(\\.\\.\\d+)?$", names(demo_table), value = TRUE)
+  if (length(sim_like)) names(demo_table)[match(sim_like[1], names(demo_table))] <- "sim"
+}
+demo_table <- demo_table %>% mutate(sim = suppressWarnings(as.integer(sim)))
+
+# Add 6 blocks of 30 with your names
+demo_table <- demo_table %>%
+  mutate(
+    block = cut(
+      sim,
+      breaks = c(0, 30, 60, 90, 120, 150, 180),
+      labels = c("miss0_y0","miss0_y3","miss50_y0","miss50_y3","miss70_y0","miss70_y3"),
+      include.lowest = TRUE, right = TRUE
+    )
+  )
+
+# Split by (xvar, block)
+split_list <- split(demo_table, list(demo_table$xvar, demo_table$block), drop = TRUE)
+
+out <- lapply(split_list, function(tb) {
+  if (is.null(tb) || !nrow(tb)) return(tb)
+
+  # numeric columns to summarize
+  num_cols_all <- vapply(tb, is.numeric, logical(1))
+  num_names    <- names(tb)[num_cols_all]
+
+  # bucket 1: year means; bucket 2: everything else
+  year_cols  <- grep("^mean_.*_yob_\\d{4}$", num_names, value = TRUE)
+  other_cols <- setdiff(num_names, year_cols)
+
+  # n for se (count sims, not any appended summary rows)
+  n_sims <- sum(!is.na(tb$sim))
+  if (!n_sims) return(tb)
+
+  xv <- unique(tb$xvar)[1]
+  bl <- as.character(unique(tb$block)[1])
+
+  add_row_named <- function(label, vals) {
+    tibble(sim = label, xvar = xv, block = bl) %>%
+      bind_cols(as.data.frame(t(vals), stringsAsFactors = FALSE))
+  }
+
+  summarise_cols <- function(cols, suffix = "") {
+    if (!length(cols)) return(list())
+    
+    mat  <- as.matrix(tb[, cols, drop = FALSE])
+    m    <- colMeans(mat, na.rm = TRUE)
+    sdev <- apply(mat, 2, sd, na.rm = TRUE)
+    se   <- sdev / sqrt(n_sims)
+    cv   <- ifelse(abs(m) > 0, sdev / abs(m), NA_real_)
+    minv <- apply(mat, 2, min, na.rm = TRUE)
+    maxv <- apply(mat, 2, max, na.rm = TRUE)
+  
+    list(
+      add_row_named(paste0("Mean", suffix), m),
+      add_row_named(paste0("sd",   suffix), sdev),
+      add_row_named(paste0("se",   suffix), se),
+      add_row_named(paste0("cv",   suffix), cv),
+      add_row_named(paste0("min",  suffix), minv),
+      add_row_named(paste0("max",  suffix), maxv)
+    )
+  }
+
+
+  rows_other <- summarise_cols(other_cols, "")
+  rows_year  <- summarise_cols(year_cols,  "_year")
+
+  bind_rows(tb, dplyr::bind_rows(c(rows_other, rows_year)))
+})
+
+demo_table <- dplyr::bind_rows(out)
+t2_demo_table <- demo_table
+```
+
+
+```{r}
+table(demo_table$block, useNA = "ifany")
+length(unique(demo_table$sim[!is.na(demo_table$sim)]))
+```
+
+```{r}
+# --- 0) Clean the sim column name to a stable 'sim' --------------------------
+sim_like <- grep("^sim($|\\.\\.\\d+)$", names(demo_table), value = TRUE)
+if (length(sim_like) >= 1L) {
+  names(demo_table)[names(demo_table) == sim_like[1]] <- "sim"
+}
+
+# Sanity check row count
+stopifnot(nrow(demo_table) == 864)
+
+# --- 1) Define the 24 chunk labels in the requested order --------------------
+x_order   <- c("bw.tbv","fi.tbv","ych4.tbv","yco2.tbv")
+miss_ord  <- c(0, 50, 70)
+ycorr_ord <- c(0.00, 0.30)
+
+# Expand in the order: for ycorr in (0.00, 0.30), for missing in (0,50,70), for x in (bw,fi,ych4,yco2)
+group_meta <- purrr::map_dfr(miss_ord, function(miss) {   # outer: missing = 0,50,70
+  purrr::map_dfr(ycorr_ord, function(yc) {                # inner: ycorr = 0.00,0.30
+    tibble::tibble(xvar = x_order, ycorr = yc, missing = miss)
+  })
+}) %>%
+  dplyr::mutate(group_id = dplyr::row_number()) %>%
+  dplyr::select(group_id, xvar, ycorr, missing)
+
+stopifnot(nrow(group_meta) == 24L)
+
+# Abbreviation helpers
+abbr_x <- c("bw.tbv"="bw", "fi.tbv"="fi", "ych4.tbv"="ych4", "yco2.tbv"="yco2")
+abbr_y <- c("0"="y0", "0.00"="y0", "0.3"="y3", "0.30"="y3")
+abbr_m <- c("0"="m0", "50"="m50", "70"="m70")
+
+# --- 2) Split demo_table into 24 chunks of 36 rows (sequential) --------------
+chunk_size <- 36L
+n_chunks   <- 24L
+demo_table <- demo_table %>%
+  dplyr::mutate(.chunk = rep(seq_len(n_chunks), each = chunk_size))
+
+chunks <- split(demo_table, demo_table$.chunk)
+
+# --- 3) For each chunk: verify xvar matches, suffix columns, keep row index ---
+prep_chunk <- function(tb, meta_row) {
+  # Add row index inside chunk for joining later
+  tb <- tb %>% dplyr::mutate(.row34 = dplyr::row_number())
+
+  # Verify xvar column matches expected (optional but helpful)
+  xvar_here <- unique(tb$xvar)
+  if (length(xvar_here) != 1L || xvar_here != meta_row$xvar) {
+    warning(sprintf("Chunk %d xvar mismatch: found %s, expected %s",
+                    meta_row$group_id,
+                    paste(xvar_here, collapse = ","),
+                    meta_row$xvar))
+  }
+
+  # Build suffix like "__bw_y0_m50"
+  sx <- abbr_x[[meta_row$xvar]]
+  sy <- abbr_y[[as.character(meta_row$ycorr)]]
+  sm <- abbr_m[[as.character(meta_row$missing)]]
+  suffix <- paste0("__", sx, "_", sy, "_", sm)
+
+  # Identify id columns & metric columns
+  id_cols     <- c(".row34", "sim", "xvar", ".chunk")
+  id_cols     <- intersect(id_cols, names(tb))
+  metric_cols <- setdiff(names(tb), id_cols)
+
+  # Rename metric columns with suffix
+  names(tb)[match(metric_cols, names(tb))] <- paste0(metric_cols, suffix)
+
+  # Rename sim to include suffix (kept for reference)
+  if ("sim" %in% names(tb)) {
+    names(tb)[names(tb) == "sim"] <- paste0("sim", suffix)
+  }
+
+  # Drop helper columns xvar/.chunk; keep .row34 and renamed metrics
+  keep_cols <- c(".row34", grep(suffix, names(tb), value = TRUE))
+  tb %>% dplyr::select(dplyr::all_of(keep_cols))
+}
+
+wide_chunks <- purrr::imap(chunks, ~prep_chunk(.x, group_meta[as.integer(.y), ]))
+
+# --- 4) Bind side-by-side by the .row34 index -------------------------------
+wide_all <- purrr::reduce(
+  wide_chunks,
+  ~ dplyr::full_join(.x, .y, by = ".row34")
+) %>%
+  dplyr::arrange(.row34)
+```
+
+Average results + cleaning
+```{r}
+ave_tbl <- wide_all[c(31:36),]
+names(ave_tbl)[names(ave_tbl) == "sim...1__bw_y0_m0"] <- "stat"
+ave_tbl$stat <- c("mean", "sd", "se", "cv", "min", "max")
+
+ave_tbl <- ave_tbl[, !(
+  names(ave_tbl) %in% ".row34" |
+  grepl("^sim\\.\\.\\.220", names(ave_tbl)) |
+  grepl("^sim\\.\\.\\.221", names(ave_tbl)) |
+  grepl("^block_", names(ave_tbl))
+)]
+
+# names(ave_tbl) <- rename_yield_missing(names(ave_tbl))
+
+t2_ave_tbl <- ave_tbl
+```
+
+
+
+# Without PAC
+
+```{r}
+full_nopac_list <- nopac_sim_list
+```
+
+```{r}
+# ---------- build base table over all sims & x vars ----------
+x_vars <- c("bw.tbv", "fi.tbv", "ych4.tbv", "yco2.tbv")
+
+demo_table <- dplyr::bind_rows(
+  unlist(
+    Map(function(d, i) {
+      # skip sims where no no-PAC animals exist
+      if (is.null(d)) return(NULL)
+      lapply(x_vars, function(xv) {
+        tryCatch(
+          summarise_one(d, i, x_col = xv),
+          error = function(e) stop(sprintf("Error in simulation %d (x=%s): %s", i, xv, e$message), call. = FALSE)
+        )
+      })
+    }, full_nopac_list, seq_along(full_nopac_list)),
+    recursive = FALSE
+  )
+)
+
+# ---------- your requested section (sim cleanup, blocks, split, add Mean/sd/se/cv) ----------
+
+# Ensure 'sim' is clean
+if (!"sim" %in% names(demo_table)) {
+  sim_like <- grep("^sim(\\.\\.\\d+)?$", names(demo_table), value = TRUE)
+  if (length(sim_like)) names(demo_table)[match(sim_like[1], names(demo_table))] <- "sim"
+}
+demo_table <- demo_table %>% mutate(sim = suppressWarnings(as.integer(sim)))
+
+# Add 6 blocks of 30 with your names
+demo_table <- demo_table %>%
+  mutate(
+    block = cut(
+      sim,
+      breaks = c(0, 30, 60, 90, 120, 150, 180),
+      labels = c("miss0_y0","miss0_y3","miss50_y0","miss50_y3","miss70_y0","miss70_y3"),
+      include.lowest = TRUE, right = TRUE
+    )
+  )
+
+# Split by (xvar, block)
+split_list <- split(demo_table, list(demo_table$xvar, demo_table$block), drop = TRUE)
+
+out <- lapply(split_list, function(tb) {
+  if (is.null(tb) || !nrow(tb)) return(tb)
+
+  # numeric columns to summarize
+  num_cols_all <- vapply(tb, is.numeric, logical(1))
+  num_names    <- names(tb)[num_cols_all]
+
+  # bucket 1: year means; bucket 2: everything else
+  year_cols  <- grep("^mean_.*_yob_\\d{4}$", num_names, value = TRUE)
+  other_cols <- setdiff(num_names, year_cols)
+
+  # n for se (count sims, not any appended summary rows)
+  n_sims <- sum(!is.na(tb$sim))
+  if (!n_sims) return(tb)
+
+  xv <- unique(tb$xvar)[1]
+  bl <- as.character(unique(tb$block)[1])
+
+  add_row_named <- function(label, vals) {
+    tibble(sim = label, xvar = xv, block = bl) %>%
+      bind_cols(as.data.frame(t(vals), stringsAsFactors = FALSE))
+  }
+
+  summarise_cols <- function(cols, suffix = "") {
+    if (!length(cols)) return(list())
+    
+    mat  <- as.matrix(tb[, cols, drop = FALSE])
+    m    <- colMeans(mat, na.rm = TRUE)
+    sdev <- apply(mat, 2, sd, na.rm = TRUE)
+    se   <- sdev / sqrt(n_sims)
+    cv   <- ifelse(abs(m) > 0, sdev / abs(m), NA_real_)
+    minv <- apply(mat, 2, min, na.rm = TRUE)
+    maxv <- apply(mat, 2, max, na.rm = TRUE)
+  
+    list(
+      add_row_named(paste0("Mean", suffix), m),
+      add_row_named(paste0("sd",   suffix), sdev),
+      add_row_named(paste0("se",   suffix), se),
+      add_row_named(paste0("cv",   suffix), cv),
+      add_row_named(paste0("min",  suffix), minv),
+      add_row_named(paste0("max",  suffix), maxv)
+    )
+  }
+
+
+  rows_other <- summarise_cols(other_cols, "")
+  rows_year  <- summarise_cols(year_cols,  "_year")
+
+  bind_rows(tb, dplyr::bind_rows(c(rows_other, rows_year)))
+})
+
+demo_table <- dplyr::bind_rows(out)
+t3_demo_table <- demo_table
+```
+
+```{r}
+# --- 1) Define the chunk labels in the requested order --------------------
+x_order   <- c("bw.tbv","fi.tbv","ych4.tbv","yco2.tbv")
+
+# without PAC: only missing = 50, 70 are present → 2 miss levels × 2 ycorr × 4 xvars = 16
+miss_ord  <- c(50, 70)
+ycorr_ord <- c(0.00, 0.30)
+
+group_meta <- purrr::map_dfr(miss_ord, function(miss) {   # outer: missing = 50,70
+  purrr::map_dfr(ycorr_ord, function(yc) {                # inner: ycorr = 0.00,0.30
+    tibble::tibble(xvar = x_order, ycorr = yc, missing = miss)
+  })
+}) %>%
+  dplyr::mutate(group_id = dplyr::row_number()) %>%
+  dplyr::select(group_id, xvar, ycorr, missing)
+
+# 16 rows: 4 xvars × 2 miss × 2 ycorr
+stopifnot(nrow(group_meta) == 16L)
+
+# Abbreviation helpers
+abbr_x <- c("bw.tbv"="bw", "fi.tbv"="fi", "ych4.tbv"="ych4", "yco2.tbv"="yco2")
+abbr_y <- c("0"="y0", "0.00"="y0", "0.3"="y3", "0.30"="y3")
+abbr_m <- c("50"="m50", "70"="m70")
+
+# --- 2) Split demo_table into 16 chunks of 34 rows (sequential) --------------
+chunk_size <- 36L
+n_chunks   <- nrow(group_meta)   # == 16
+
+# sanity: 576 = 16 × 36 in your error message
+stopifnot(nrow(demo_table) == n_chunks * chunk_size)
+
+demo_table <- dplyr::mutate(
+  demo_table,
+  .chunk = rep(seq_len(n_chunks), each = chunk_size)
+)
+
+chunks <- split(demo_table, demo_table$.chunk)
+
+# --- 3) For each chunk: verify xvar matches, suffix columns, keep row index ---
+prep_chunk <- function(tb, meta_row) {
+  tb <- dplyr::mutate(tb, .row34 = dplyr::row_number())
+
+  xvar_here <- unique(tb$xvar)
+  if (length(xvar_here) != 1L || xvar_here != meta_row$xvar) {
+    warning(sprintf("Chunk %d xvar mismatch: found %s, expected %s",
+                    meta_row$group_id,
+                    paste(xvar_here, collapse = ","),
+                    meta_row$xvar))
+  }
+
+  sx <- abbr_x[[meta_row$xvar]]
+  sy <- abbr_y[[as.character(meta_row$ycorr)]]
+  sm <- abbr_m[[as.character(meta_row$missing)]]
+  suffix <- paste0("__", sx, "_", sy, "_", sm)
+
+  id_cols     <- c(".row34", "sim", "xvar", ".chunk")
+  id_cols     <- intersect(id_cols, names(tb))
+  metric_cols <- setdiff(names(tb), id_cols)
+
+  names(tb)[match(metric_cols, names(tb))] <- paste0(metric_cols, suffix)
+
+  if ("sim" %in% names(tb)) {
+    names(tb)[names(tb) == "sim"] <- paste0("sim", suffix)
+  }
+
+  keep_cols <- c(".row34", grep(suffix, names(tb), value = TRUE))
+  dplyr::select(tb, dplyr::all_of(keep_cols))
+}
+
+wide_chunks <- purrr::imap(
+  chunks,
+  ~prep_chunk(.x, group_meta[as.integer(.y), ])
+)
+
+# --- 4) Bind side-by-side by the .row34 index -------------------------------
+wide_all <- purrr::reduce(
+  wide_chunks,
+  ~ dplyr::full_join(.x, .y, by = ".row34")
+) %>%
+  dplyr::arrange(.row34)
+
+```
+
+Average results + cleaning
+```{r}
+ave_tbl <- wide_all[c(31:36),]
+names(ave_tbl)[names(ave_tbl) == "sim...1__bw_y0_m0"] <- "stat"
+ave_tbl$stat <- c("mean", "sd", "se", "cv", "min", "max")
+
+ave_tbl <- ave_tbl[, !(
+  names(ave_tbl) %in% ".row34" |
+  grepl("^sim\\.\\.\\.220", names(ave_tbl)) |
+  grepl("^sim\\.\\.\\.221", names(ave_tbl)) |
+  grepl("^block_", names(ave_tbl))
+)]
+
+# names(ave_tbl) <- rename_yield_missing(names(ave_tbl))
+
+t3_ave_tbl <- ave_tbl
+```
+
+
+
+
+# All Sires
+
+```{r}
+# ---------- build base table over all sims & x vars ----------
+x_vars <- c("bw.tbv", "fi.tbv", "ych4.tbv", "yco2.tbv")
+
+demo_table <- dplyr::bind_rows(
+  unlist(
+    Map(function(d, i) {
+      if (is.null(d)) return(NULL)  # safety guard for missing sire tables
+      lapply(x_vars, function(xv) {
+        tryCatch(
+          summarise_one(d, i, x_col = xv),
+          error = function(e) stop(sprintf("Error in simulation %d (x=%s): %s", i, xv, e$message), call. = FALSE)
+        )
+      })
+    }, sire_list, seq_along(sire_list)),
+    recursive = FALSE
+  )
+)
+
+# ---------- sim cleanup, blocks, split, add Mean/sd/se/cv ----------
+
+# Ensure 'sim' is clean
+if (!"sim" %in% names(demo_table)) {
+  sim_like <- grep("^sim(\\.\\.\\d+)?$", names(demo_table), value = TRUE)
+  if (length(sim_like)) {
+    names(demo_table)[match(sim_like[1], names(demo_table))] <- "sim"
+  }
+}
+demo_table <- demo_table %>%
+  dplyr::mutate(sim = suppressWarnings(as.integer(sim)))
+
+# Add 6 blocks of 30 with your names
+demo_table <- demo_table %>%
+  dplyr::mutate(
+    block = cut(
+      sim,
+      breaks = c(0, 30, 60, 90, 120, 150, 180),
+      labels = c("miss0_y0","miss0_y3","miss50_y0","miss50_y3","miss70_y0","miss70_y3"),
+      include.lowest = TRUE, right = TRUE
+    )
+  )
+
+# Split by (xvar, block)
+split_list <- split(demo_table, list(demo_table$xvar, demo_table$block), drop = TRUE)
+
+out <- lapply(split_list, function(tb) {
+  if (is.null(tb) || !nrow(tb)) return(tb)
+
+  # numeric columns to summarize
+  num_cols_all <- vapply(tb, is.numeric, logical(1))
+  num_names    <- names(tb)[num_cols_all]
+
+  # bucket 1: year means; bucket 2: everything else
+  year_cols  <- grep("^mean_.*_yob_\\d{4}$", num_names, value = TRUE)
+  other_cols <- setdiff(num_names, year_cols)
+
+  # n for se (count sims, not any appended summary rows)
+  n_sims <- sum(!is.na(tb$sim))
+  if (!n_sims) return(tb)
+
+  xv <- unique(tb$xvar)[1]
+  bl <- as.character(unique(tb$block)[1])
+
+  add_row_named <- function(label, vals) {
+    tibble(sim = label, xvar = xv, block = bl) %>%
+      dplyr::bind_cols(as.data.frame(t(vals), stringsAsFactors = FALSE))
+  }
+
+  summarise_cols <- function(cols, suffix = "") {
+    if (!length(cols)) return(list())
+    
+    mat  <- as.matrix(tb[, cols, drop = FALSE])
+    m    <- colMeans(mat, na.rm = TRUE)
+    sdev <- apply(mat, 2, sd, na.rm = TRUE)
+    se   <- sdev / sqrt(n_sims)
+    cv   <- ifelse(abs(m) > 0, sdev / abs(m), NA_real_)
+    minv <- apply(mat, 2, min, na.rm = TRUE)
+    maxv <- apply(mat, 2, max, na.rm = TRUE)
+  
+    list(
+      add_row_named(paste0("Mean", suffix), m),
+      add_row_named(paste0("sd",   suffix), sdev),
+      add_row_named(paste0("se",   suffix), se),
+      add_row_named(paste0("cv",   suffix), cv),
+      add_row_named(paste0("min",  suffix), minv),
+      add_row_named(paste0("max",  suffix), maxv)
+    )
+  }
+
+  rows_other <- summarise_cols(other_cols, "")
+  rows_year  <- summarise_cols(year_cols,  "_year")
+
+  dplyr::bind_rows(tb, dplyr::bind_rows(c(rows_other, rows_year)))
+})
+
+demo_table <- dplyr::bind_rows(out)
+t4_demo_table <- demo_table
+
+# Sanity check row count
+stopifnot(nrow(demo_table) == 864)
+
+# --- 1) Define the 24 chunk labels in the requested order --------------------
+x_order   <- c("bw.tbv","fi.tbv","ych4.tbv","yco2.tbv")
+miss_ord  <- c(0, 50, 70)
+ycorr_ord <- c(0.00, 0.30)
+
+group_meta <- purrr::map_dfr(miss_ord, function(miss) {
+  purrr::map_dfr(ycorr_ord, function(yc) {
+    tibble::tibble(xvar = x_order, ycorr = yc, missing = miss)
+  })
+}) %>%
+  dplyr::mutate(group_id = dplyr::row_number()) %>%
+  dplyr::select(group_id, xvar, ycorr, missing)
+
+stopifnot(nrow(group_meta) == 24L)
+
+abbr_x <- c("bw.tbv"="bw", "fi.tbv"="fi", "ych4.tbv"="ych4", "yco2.tbv"="yco2")
+abbr_y <- c("0"="y0", "0.00"="y0", "0.3"="y3", "0.30"="y3")
+abbr_m <- c("0"="m0", "50"="m50", "70"="m70")
+
+# --- 2) Split demo_table into 24 chunks of 34 rows (sequential) --------------
+chunk_size <- 36L
+n_chunks   <- 24L
+demo_table <- demo_table %>%
+  dplyr::mutate(.chunk = rep(seq_len(n_chunks), each = chunk_size))
+
+chunks <- split(demo_table, demo_table$.chunk)
+
+# --- 3) For each chunk: verify xvar matches, suffix columns, keep row index ---
+prep_chunk <- function(tb, meta_row) {
+  tb <- tb %>% dplyr::mutate(.row34 = dplyr::row_number())
+
+  xvar_here <- unique(tb$xvar)
+  if (length(xvar_here) != 1L || xvar_here != meta_row$xvar) {
+    warning(sprintf("Chunk %d xvar mismatch: found %s, expected %s",
+                    meta_row$group_id,
+                    paste(xvar_here, collapse = ","),
+                    meta_row$xvar))
+  }
+
+  sx <- abbr_x[[meta_row$xvar]]
+  sy <- abbr_y[[as.character(meta_row$ycorr)]]
+  sm <- abbr_m[[as.character(meta_row$missing)]]
+  suffix <- paste0("__", sx, "_", sy, "_", sm)
+
+  id_cols     <- c(".row34", "sim", "xvar", ".chunk")
+  id_cols     <- intersect(id_cols, names(tb))
+  metric_cols <- setdiff(names(tb), id_cols)
+
+  names(tb)[match(metric_cols, names(tb))] <- paste0(metric_cols, suffix)
+
+  if ("sim" %in% names(tb)) {
+    names(tb)[names(tb) == "sim"] <- paste0("sim", suffix)
+  }
+
+  keep_cols <- c(".row34", grep(suffix, names(tb), value = TRUE))
+  tb %>% dplyr::select(dplyr::all_of(keep_cols))
+}
+
+wide_chunks <- purrr::imap(chunks, ~prep_chunk(.x, group_meta[as.integer(.y), ]))
+
+wide_all <- purrr::reduce(wide_chunks, ~ dplyr::full_join(.x, .y, by = ".row34")) %>%
+  dplyr::arrange(.row34)
+
+# Average results + cleaning
+ave_tbl <- wide_all[c(31:36), ]
+names(ave_tbl)[names(ave_tbl) == "sim...1__bw_y0_m0"] <- "stat"
+ave_tbl$stat <- c("mean", "sd", "se", "cv", "min", "max")
+
+ave_tbl <- ave_tbl[, !(
+  names(ave_tbl) %in% ".row34" |
+    grepl("^sim\\.\\.\\.220", names(ave_tbl)) |
+    grepl("^sim\\.\\.\\.221", names(ave_tbl)) |
+    grepl("^block_", names(ave_tbl))
+)]
+
+t4_ave_tbl <- ave_tbl
+
+```
+
+check if all t1, t2, t3, and t4 have r2_uEBV and r2_mEBV columns in average tables:
+```{r}
+tbl_list <- list(
+  t1 = t1_ave_tbl,
+  t2 = t2_ave_tbl,
+  t3 = t3_ave_tbl,
+  t4 = t4_ave_tbl
+)
+
+sapply(tbl_list, function(df) {
+  c(
+    r2_uEBV = length(grep("r2_uEBV", names(df))),
+    r2_mEBV = length(grep("r2_mEBV", names(df)))
+  )
+})
+```
+Now write this into final folder:
+
+
+# Creating combined table
+```{r}
+
+# helper to prefix ALL column names
+prefix_cols <- function(df, prefix) {
+  names(df) <- paste0(prefix, names(df))
+  df
+}
+
+# sanity: all tables exist and have same number of rows
+stopifnot(
+  exists("t1_ave_tbl"), exists("t2_ave_tbl"),
+  exists("t3_ave_tbl"), exists("t4_ave_tbl")
+)
+stopifnot(nrow(t1_ave_tbl) == nrow(t2_ave_tbl),
+          nrow(t1_ave_tbl) == nrow(t3_ave_tbl),
+          nrow(t1_ave_tbl) == nrow(t4_ave_tbl))
+
+# prefix every column (including 'stat', etc.)
+t1_pref <- prefix_cols(t1_ave_tbl, "t1_")
+t2_pref <- prefix_cols(t2_ave_tbl, "t2_")
+t3_pref <- prefix_cols(t3_ave_tbl, "t3_")
+t4_pref <- prefix_cols(t4_ave_tbl, "t4_")
+
+# bind side-by-side in requested order
+combined_prefixed <- cbind(t1_pref, t2_pref, t3_pref, t4_pref)
+
+
+ 
+```
+
+```{r, eval=FALSE}
+out_dir <- "path/to/your/output_directory"
+out_path <- file.path(out_dir, "final_combined_t1_t2_t3_t4_side_by_side.csv")
+write.csv(combined_prefixed, out_path, row.names = FALSE)
+
+message("✅ Wrote: ", out_path)
+```
