@@ -95,7 +95,7 @@ uEBV bw s__I__
  res_3
  dummy 1
 
-all_ped___I__.ped
+all_ped___I__.ped !MAKE
 full_sim___I__.csv !skip 1 !maxit 20 !typeIII
 
 bw_p ~ mu sex yob dam_par litter_size !r id
@@ -146,7 +146,7 @@ uEBV dch4 s__I__
  res_3
  dummy 1
 
-all_ped___I__.ped
+all_ped___I__.ped !MAKE
 full_sim___I__.csv !skip 1 !maxit 20 !typeIII
 
 ch4_p_x ~ mu sex yob dam_par litter_size !r id
@@ -197,7 +197,7 @@ uEBV dco2 s__I__
  res_3
  dummy 1
 
-all_ped___I__.ped
+all_ped___I__.ped !MAKE
 full_sim___I__.csv !skip 1 !maxit 20 !typeIII
 
 co2_p_x ~ mu sex yob dam_par litter_size !r id
@@ -248,7 +248,7 @@ mEBV base s__I__
  res_3
  dummy 1
 
-all_ped___I__.ped
+all_ped___I__.ped !MAKE
 full_sim___I__.csv !skip 1 !maxit 200000 !typeIII
 
 bw_p ch4_p_x co2_p_x ~ Trait Tr.sex Tr.yob Tr.dam_par Tr.litter_size !r Tr.ani
@@ -326,7 +326,7 @@ uEBV r1 s__I__
  res_3
  dummy 1
 
-all_ped___I__.ped
+all_ped___I__.ped !MAKE
 full_sim___I__.csv !skip 1 !maxit 20000 !typeIII
 
 res_1 ~ mu !r id
@@ -377,7 +377,7 @@ uEBV r2 s__I__
  res_3
  dummy 1
 
-all_ped___I__.ped
+all_ped___I__.ped !MAKE
 full_sim___I__.csv !skip 1 !maxit 20000 !typeIII
 
 res_2 ~ mu !r id
@@ -428,7 +428,7 @@ uEBV r3 s__I__
  res_3
  dummy 1
 
-all_ped___I__.ped
+all_ped___I__.ped !MAKE
 full_sim___I__.csv !skip 1 !maxit 20000 !typeIII
 
 res_3 ~ mu !r id
@@ -513,7 +513,7 @@ mEBV r${res} s${i}
  res_3
  dummy 1
 
-all_ped_${i}.ped
+all_ped_${i}.ped !MAKE
 full_sim_${i}.csv !skip 1 !maxit 20000000 !MVINCLUDE !typeIII
 
 res_${res} bw_p co2_p_x ~ Trait at(Tr,2).sex at(Tr,2).yob at(Tr,2).dam_par at(Tr,2).litter_size at(Tr,3).sex at(Tr,3).yob at(Tr,3).dam_par at(Tr,3).litter_size !r Tr.ani
