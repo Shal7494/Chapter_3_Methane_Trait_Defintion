@@ -397,6 +397,20 @@ surv_rate_m <- 0.7
 
 select_sires_num <- 60
 
+# Settings that reproduce the published datasets ("as_run").
+# inbreeding_rule:
+#   "as_run"   = only rams with known parents were prevented from mating their own
+#                daughters; half-sib matings were not restricted
+#   "intended" = rams cannot mate their own daughters or half-sib ewes
+#                (founder rams exempt from the half-sib rule only)
+# gas_fe_rule:
+#   "as_run"   = fixed effects (sex, year of birth, dam parity, litter size) were applied to
+#                methane yield, CO2 yield, daily CH4 and daily CO2 for founders only;
+#                animals born 2018-2023 have no fixed effects on these traits
+#   "intended" = the fixed effects are applied to all animals
+inbreeding_rule <- "as_run"
+gas_fe_rule     <- "as_run"
+
 n_gen <- final_yob - init_yob + 1        # number of generations to simulate assuming 1 lambing per year
 ```
 
@@ -1003,7 +1017,9 @@ mate_founders <- function(
     fe.cov_matrix.1d,
     fe.Mean.2y, 
     fe.cov_matrix.2y,
-    rnormBound
+    rnormBound,
+    inbreeding_rule = "as_run",
+    gas_fe_rule     = "as_run"
 ) {
   prev_gen <- ffounder
   new_gen <- ffounder
@@ -1078,16 +1094,25 @@ mate_founders <- function(
       
       ####
       # Filter eligible dams
-      possible_sires <- selected_sires[
-        id != dam_sire &
-          (
-            (sire_sire == 0 & sire_dam == 0) |
+      if (inbreeding_rule == "as_run") {
+        # as run for the published datasets
+        possible_sires <- selected_sires[
+          (sire_sire == 0 & sire_dam == 0) |   # founder rams: no restriction
+          id != dam_sire                        # other rams: not her own sire
+        ]
+      } else {
+        # intended rule: not her sire, and not a half-sib (founder rams exempt from half-sib rule)
+        possible_sires <- selected_sires[
+          id != dam_sire &
             (
-              sire_sire != dam_sire &
-              sire_dam  != dam_dam
+              (sire_sire == 0 & sire_dam == 0) |
+              (
+                sire_sire != dam_sire &
+                sire_dam  != dam_dam
+              )
             )
-          )
-      ]
+        ]
+      }
       
       if (nrow(possible_sires) > 0) {
         new_ped$sire[i] <- sample(possible_sires$id, 1)
@@ -1505,10 +1530,19 @@ mate_founders <- function(
     
     new_gen[, bw.p   := rowSums(.SD, na.rm = TRUE),           .SDcols = patterns("^bw")]
     new_gen[, fi.p   := pmax(0.05, rowSums(.SD, na.rm = TRUE)), .SDcols = patterns("^fi")]
-    new_gen[, ch4.p  := rowSums(.SD, na.rm = TRUE),           .SDcols = patterns("^ch4")]
-    new_gen[, co2.p  := rowSums(.SD, na.rm = TRUE),           .SDcols = patterns("^co2")]
-    new_gen[, ych4.p := pmax(5, rowSums(.SD, na.rm = TRUE)),    .SDcols = patterns("^ych4")]
-    new_gen[, yco2.p := rowSums(.SD, na.rm = TRUE),           .SDcols = patterns("^yco2")]
+    if (gas_fe_rule == "as_run") {
+      # as run for the published datasets: no fixed effects on the gas traits
+      # (the fixed effects above are still drawn so the random number stream is unchanged)
+      new_gen[, ch4.p  := ch4.tbv + ch4.env]
+      new_gen[, co2.p  := co2.tbv + co2.env]
+      new_gen[, ych4.p := pmax(5, ych4.tbv + ych4.env)]
+      new_gen[, yco2.p := yco2.tbv + yco2.env]
+    } else {
+      new_gen[, ch4.p  := rowSums(.SD, na.rm = TRUE),           .SDcols = patterns("^ch4")]
+      new_gen[, co2.p  := rowSums(.SD, na.rm = TRUE),           .SDcols = patterns("^co2")]
+      new_gen[, ych4.p := pmax(5, rowSums(.SD, na.rm = TRUE)),    .SDcols = patterns("^ych4")]
+      new_gen[, yco2.p := rowSums(.SD, na.rm = TRUE),           .SDcols = patterns("^yco2")]
+    }
     
     top_sires <- new_gen[sex == "M"][order(-bw.p)][1:fselect_sires_num]
     females   <- new_gen[sex == "F"]
@@ -1604,7 +1638,9 @@ for (i in 1:fsim_num) {
           e.cov_matrix.1d,
           e.Mean.2y, 
           e.cov_matrix.2y,
-          rnormBound
+          rnormBound,
+          inbreeding_rule = inbreeding_rule,
+          gas_fe_rule     = gas_fe_rule
         )
   )
 }
@@ -1911,7 +1947,9 @@ for (i in 1:fsim_num) {
           e.cov_matrix.1d,
           e.Mean.2y, 
           e.cov_matrix.2y,
-          rnormBound
+          rnormBound,
+          inbreeding_rule = inbreeding_rule,
+          gas_fe_rule     = gas_fe_rule
         )
   )
 }
@@ -2059,4 +2097,3 @@ for (i in 1:180) {
   fwrite(data, filename)
 }
 ```
-
